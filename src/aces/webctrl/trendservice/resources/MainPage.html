@@ -1,0 +1,357 @@
+<!--
+  BSD 3-Clause License
+  Copyright (c) 2022, Automatic Controls Equipment Systems, Inc.
+  Contributors: Cameron Vogt (@cvogt729)
+-->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>
+      TrendHistorianService
+    </title>
+    <link rel="stylesheet" type="text/css" href="../../../../../root/webapp/main.css"/>
+    <script>
+      function resize(input){
+        const styles = window.getComputedStyle(input);
+        hiddenSpan.style.fontFamily = styles.fontFamily;
+        hiddenSpan.style.fontSize = styles.fontSize;
+        hiddenSpan.style.fontStyle = styles.fontStyle;
+        hiddenSpan.style.fontWeight = styles.fontWeight;
+        hiddenSpan.style.letterSpacing = styles.letterSpacing;
+        hiddenSpan.style.textTransform = styles.textTransform;
+        hiddenSpan.style.borderLeftWidth = styles.borderLeftWidth;
+        hiddenSpan.style.borderRightWidth = styles.borderRightWidth;
+        hiddenSpan.style.paddingLeft = styles.paddingLeft;
+        hiddenSpan.style.paddingRight = styles.paddingRight;
+        hiddenSpan.innerText = input.value;
+        input.style.width = hiddenSpan.offsetWidth+"px";
+      }
+      function validateInt(field,max){
+        var s = field.value;
+        if (s.length>0){
+          s = s.replaceAll(/\D/g,"");
+          if (s.length>0){
+            if (s.length>15){
+              s = s.substring(0,15);
+            }
+            s = parseInt(s);
+            s = Math.min(s,max);
+            field.value = s.toString();
+          }else{
+            field.value = "";
+          }
+        }
+      }
+      function scatter(d){
+        const thresh = __THRESH__;
+        let w = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0) * 0.9;
+        let h = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0) * 0.82;
+        w = Math.round(w);
+        h = Math.round(h);
+        if (w === 0) {
+          w = 10;
+        }
+        if (h === 0) {
+          h = 10;
+        }
+        let xMin = d[0]["x"];
+        let xMax = d[d.length-1]["x"];
+        let xRange = xMax - xMin;
+        const xFn = function (x) {
+          return Math.round((x - xMin) * w / xRange);
+        };
+        const xData = [];
+        const xxData = [];
+        for (const p of d){
+          xData.push(p["x"]);
+          xxData.push(xFn(p["x"]));
+        }
+        let yMin = 0;
+        let yMax = thresh;
+        for (const p of d){
+          yMax = Math.max(yMax, p["y"]);
+        }
+        let yRange = (yMax - yMin) / 40;
+        yMin -= yRange;
+        yMax += yRange;
+        yRange = yMax - yMin;
+        const yDecimals = 0;
+        const yFn = function (y) {
+          return Math.round(h - (y - yMin) * h / yRange - 1);
+        };
+        const yOrigin = yFn(0);
+        const yThresh = yFn(thresh);
+        const yData = [];
+        const yyData = [];
+        for (const p of d){
+          yData.push(p["y"]);
+          yyData.push(yFn(p["y"]));
+        }
+        const canvas = document.createElement("CANVAS");
+        canvas.onmouseleave = function (e) {
+          popup.style.display = "none";
+        };
+        canvas.onmousemove = function (e) {
+          const rect = canvas.getBoundingClientRect();
+          if (e.ctrlKey || e.shiftKey) {
+            let j = binarySearch(xxData, e.clientX - rect.left);
+            popup.innerText = toDate(xData[j]) + " - " + yData[j].toFixed(yDecimals);
+            popup.style.left = String(Math.round(rect.left + xxData[j] - popup.offsetWidth / 2 + window.scrollX)) + "px";
+            popup.style.top = String(Math.round(rect.top + yyData[j] + popup.offsetHeight / 2 + window.scrollY)) + "px";
+          } else {
+            popup.innerText = toDate(Math.round((e.clientX - rect.left) * xRange / w + xMin)) + " - " + ((h - e.clientY + rect.top - 1) * yRange / h + yMin).toFixed(yDecimals);
+            popup.style.left = String(Math.round(e.clientX - popup.offsetWidth / 2 + window.scrollX)) + "px";
+            popup.style.top = String(Math.round(e.clientY + popup.offsetHeight + window.scrollY)) + "px";
+          }
+          popup.style.display = "inline-block";
+        };
+        canvas.onmouseover = canvas.onmousemove;
+        canvas.onmouseenter = canvas.onmousemove;
+        canvas.setAttribute("width", w);
+        canvas.setAttribute("height", h);
+        canvas.style.marginLeft = "auto";
+        canvas.style.marginRight = "auto";
+        canvas.style.paddingLeft = "0";
+        canvas.style.paddingRight = "0";
+        canvas.style.display = "block";
+        canvas.style.userSelect = "none";
+        canvas.style.backgroundColor = "black";
+        canvas.style.cursor = "crosshair";
+        const ctx = canvas.getContext("2d");
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "steelblue";
+        ctx.beginPath();
+        ctx.moveTo(0, yOrigin);
+        ctx.lineTo(w, yOrigin);
+        ctx.stroke();
+        ctx.strokeStyle = "darkorange";
+        ctx.beginPath();
+        ctx.moveTo(0, yThresh);
+        ctx.lineTo(w, yThresh);
+        ctx.stroke();
+        {
+          const h = new Date(xMin);
+          h.setMinutes(0);
+          h.setSeconds(0);
+          h.setMilliseconds(0);
+          let hour = h.getTime();
+          if (hour<=xMin){
+            hour+=3600000;
+          }
+          ctx.strokeStyle = "steelblue";
+          ctx.beginPath();
+          while (hour<=xMax){
+            const x = xFn(hour);
+            ctx.moveTo(x,0);
+            ctx.lineTo(x,h);
+            hour+=3600000;
+          }
+          ctx.stroke();
+        }
+        ctx.strokeStyle = "forestgreen";
+        ctx.beginPath();
+        var lastX = 0;
+        for (var i = 0; i < xData.length; ++i) {
+          const x = xxData[i];
+          const y = yyData[i];
+          if (i === 0) {
+            ctx.moveTo(x, y);
+            lastX = xData[i];
+          } else {
+            if (Math.abs(xData[i]-lastX)<60000){
+              ctx.lineTo(x, y);
+            }else{
+              ctx.moveTo(x, y);
+            }
+            lastX = xData[i];
+          }
+        }
+        ctx.stroke();
+        ctx.fillStyle = "white";
+        ctx.beginPath();
+        for (var i = 0; i < xData.length; ++i) {
+          const x = xxData[i];
+          const y = yyData[i];
+          ctx.moveTo(x, y);
+          ctx.arc(x, y, 1, 0, 2 * Math.PI);
+        }
+        ctx.fill();
+        return canvas;
+      }
+      function toDate(time){
+        const d = new Date(time);
+        return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+" - "+pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds());
+      }
+      function pad(x){
+        if (x>9){
+          return String(x);
+        }else{
+          return "0"+String(x);
+        }
+      }
+      function binarySearch(arr, val) {
+        let start = 0;
+        let end = arr.length-1;
+        while (start<=end){
+          let mid = Math.floor((start+end)/2);
+          if (arr[mid]===val){
+            return mid;
+          }
+          if (val<arr[mid]){
+            end = mid-1;
+          }else{
+            start = mid+1;
+          }
+        }
+        if (Math.abs(arr[start]-val)<Math.abs(arr[end]-val)){
+          return start;
+        }else{
+          return end;
+        }
+      }
+      function parseRefresh(res){
+        const statusBox = document.getElementById("statusBox");
+        try{
+          const data = JSON.parse(res);
+          if (data.length>=2){
+            document.getElementById("killme").style.display = "none";
+            document.getElementById("graphContainer").replaceChildren(scatter(data));
+          }else{
+            statusBox.innerText = "Not enough data.";
+            console.log("Not enough data.");
+          }
+        }catch(e){
+          console.log("Failed to parse response.");
+          console.error(e);
+          statusBox.innerText = "Failed to parse response.";
+        }
+      }
+      function manualRefresh(milli){
+        const req = new XMLHttpRequest();
+        req.open("POST","__PREFIX__/index?type=load");
+        req.setRequestHeader("content-type", "application/x-www-form-urlencoded");
+        req.timeout = 60000;
+        req.onreadystatechange = function(){
+          if (this.readyState===4){
+            if (this.status===200){
+              parseRefresh(this.responseText);
+            }else if (this.status==0){
+              console.log("Request timed out.");
+            }else{
+              console.log("HTTP Error "+this.status);
+            }
+          }
+        };
+        if (milli && milli!="0"){
+          req.send("milli="+encodeURIComponent(milli));
+        }else{
+          req.send();
+        }
+      }
+      function save(){
+        if (saveButton.disabled){
+          return;
+        }
+        saveButton.disabled = true;
+        const req = new XMLHttpRequest();
+        req.open("POST","__PREFIX__/index?type=save");
+        req.setRequestHeader("content-type", "application/x-www-form-urlencoded");
+        req.timeout = 10000;
+        req.onreadystatechange = function(){
+          if (this.readyState===4){
+            saveButton.disabled = false;
+            if (this.status===200){
+              setStatus("lightgreen","Successful.");
+            }else if (this.status==0){
+              setStatus("red","Request timed out.");
+            }else{
+              setStatus("red","HTTP Error "+this.status);
+            }
+          }
+        };
+        setStatus("lightgreen","Saving data...");
+        req.send(
+          "emailSubject="+encodeURIComponent(emailSubjectField.value)+
+          "&emailRecipients="+encodeURIComponent(emailRecipientsField.value)
+        );
+      }
+      function setStatus(color,text){
+        statusBox2.innerText = text;
+        statusBox2.style.color = color;
+      }
+    </script>
+  </head>
+  <body>
+    <div id="popup" style="display:none;position:absolute;cursor:default;color:yellow;pointer-events:none;"></div>
+    <div style="text-align:center">
+      <h1 id="mainTitle">TrendHistorianService</h1>
+      <div id="killme">
+        <span id="statusBox" style="color:red">Loading...</span>
+        <br><br>
+      </div>
+      <div class="divGrouping" title="Enter a number of minutes here and press 'enter' to filter the trend data.">
+        <label for="intervalField">Visible Timespan:</label>
+        <input class="c" type="text" id="intervalField" oninput="validateInt(this,9999);resize(this)">
+        <span>minutes</span>
+      </div>
+      <br>
+      <div id="graphContainer"></div>
+      <br>
+      <h3>Configuration</h3>
+      <div class="divGrouping" title="Specifies the email subject for alarm notifications. Leave this blank to disable notifications.">
+        <label for="emailSubjectField">Email Subject:</label>
+        <input class="c" type="text" id="emailSubjectField" oninput="resize(this)">
+      </div>
+      <br>
+      <div class="divGrouping" title="Semi-colon delimited list of recipient email addresses for alarm notifications. Leave this blank to disable notifications.">
+        <label for="emailRecipientsField">Email Recipients:</label>
+        <input class="c" type="text" id="emailRecipientsField" oninput="resize(this)">
+      </div>
+      <br>
+      <button class="e" id="saveButton" onclick="save()">Save Changes</button>
+      <br>
+      <div class="divGrouping">
+        <span id="statusBox2"></span>
+      </div>
+      <span id="hiddenSpan" style="min-width:3em;color:black;display:inline-block;position:absolute;left:-100000px;white-space:pre"></span>
+    </div>
+    <script>
+      emailSubjectField.value = "__EMAIL_SUBJECT__";
+      emailRecipientsField.value = "__EMAIL_RECIPIENTS__";
+      resize(emailSubjectField);
+      resize(emailRecipientsField);
+      const intervalField = document.getElementById("intervalField");
+      resize(intervalField);
+      intervalField.onkeydown = (e)=>{
+        if (e.key==="Enter"){
+          validateInt(intervalField,9999);
+          resize(intervalField);
+          const v = intervalField.value;
+          if (v.length>0){
+            manualRefresh(v);
+          }else{
+            manualRefresh();
+          }
+        }
+      };
+      const statusBox = document.getElementById("statusBox");
+      const req = new XMLHttpRequest();
+      req.open("POST","__PREFIX__/index?type=load");
+      req.setRequestHeader("content-type", "application/x-www-form-urlencoded");
+      req.timeout = 60000;
+      req.onreadystatechange = function(){
+        if (this.readyState===4){
+          if (this.status===200){
+            parseRefresh(this.responseText);
+          }else if (this.status==0){
+            statusBox.innerText = "Request timed out.";
+          }else{
+            statusBox.innerText = "HTTP Error "+this.status;
+          }
+        }
+      };
+      req.send();
+    </script>
+  </body>
+</html>
